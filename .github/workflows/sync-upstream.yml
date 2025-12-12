@@ -1,0 +1,79 @@
+name: Sync Upstream via PR
+
+on:
+  schedule:
+    - cron: '0 2 * * 0' # Sundays at 2 AM UTC
+  workflow_dispatch:    # Manual trigger
+
+jobs:
+  sync-pull-request:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+      - name: Sync and Create PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPSTREAM_REPO: "containers/kubernetes-mcp-server"
+          BRANCH_NAME: "upstream-sync"
+        run: |
+          # 1. Setup Remote
+          git remote add upstream "https://github.com/containers/kubernetes-mcp-server.git"
+          git fetch upstream
+
+          # 2. Check if we are behind
+          BEHIND_COUNT=$(git rev-list --count HEAD..upstream/main)
+          if [ "$BEHIND_COUNT" -eq "0" ]; then
+            echo "✅ Branch is up to date. No PR needed."
+            exit 0
+          fi
+
+          # 3. Create a temporary branch for the PR
+          # We force the branch to match upstream/main exactly
+          git checkout -B $BRANCH_NAME upstream/main
+
+          # 4. Generate a list of changes (commits)
+          CHANGELOG=$(git log --pretty=format:"- %h %s (%an)" origin/main..upstream/main)
+          
+          # 5. Push the branch (Force push to update if it exists)
+          git push -f origin $BRANCH_NAME
+
+          # 6. Create PR using GitHub CLI
+          # We check if a PR exists first to avoid errors
+          if gh pr list --head $BRANCH_NAME --state open | grep -q "$BRANCH_NAME"; then
+            echo "⚠️ A PR for $BRANCH_NAME already exists. Updating it..."
+            gh pr edit $BRANCH_NAME --body "### 🔄 Upstream Sync
+            
+            **Update:** $(date)
+            
+            New changes detected from upstream:
+            $CHANGELOG"
+          else
+            echo "🚀 Creating new PR..."
+              gh pr create \
+                --title "chore: sync with upstream $(date +'%Y-%m-%d') - $BEHIND_COUNT new commits ($(date +'%Y-%m-%d'))" \
+                --body "$(cat <<EOF
+              ### 🔄 Upstream Sync
+
+              This PR syncs the fork with the latest upstream changes.
+
+              **Changes:**
+              $CHANGELOG
+              EOF
+              )" \
+                --base main \
+                --head $BRANCH_NAME
+          fi
