@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -15,6 +16,7 @@ import (
 	"github.com/containers/kubernetes-mcp-server/pkg/api"
 	"github.com/containers/kubernetes-mcp-server/pkg/config"
 	internalk8s "github.com/containers/kubernetes-mcp-server/pkg/kubernetes"
+	"github.com/containers/kubernetes-mcp-server/pkg/metrics"
 	"github.com/containers/kubernetes-mcp-server/pkg/output"
 	"github.com/containers/kubernetes-mcp-server/pkg/prompts"
 	"github.com/containers/kubernetes-mcp-server/pkg/toolsets"
@@ -71,6 +73,7 @@ type Server struct {
 	enabledTools   []string
 	enabledPrompts []string
 	p              internalk8s.Provider
+	metrics        *metrics.Metrics // Metrics collection system
 }
 
 func NewServer(configuration Configuration, oidcProvider *oidc.Provider, httpClient *http.Client) (*Server, error) {
@@ -95,8 +98,13 @@ func NewServer(configuration Configuration, oidcProvider *oidc.Provider, httpCli
 			}),
 	}
 
+	// Initialize metrics system
+	s.metrics = metrics.NewFromEnvironment(version.BinaryName + "/mcp")
+
+	s.server.AddReceivingMiddleware(traceContextPropagationMiddleware)
 	s.server.AddReceivingMiddleware(authHeaderPropagationMiddleware)
 	s.server.AddReceivingMiddleware(toolCallLoggingMiddleware)
+	s.server.AddReceivingMiddleware(s.metricsMiddleware())
 	if configuration.RequireOAuth && false { // TODO: Disabled scope auth validation for now
 		s.server.AddReceivingMiddleware(toolScopedAuthorizationMiddleware)
 	}
@@ -215,6 +223,59 @@ func (s *Server) reloadToolsets() error {
 	// start new watch
 	s.p.WatchTargets(s.reloadToolsets)
 	return nil
+}
+
+// MergePrompts merges two slices of prompts, with prompts in override taking precedence
+// over prompts in base when they have the same name
+func MergePrompts(base, override []api.ServerPrompt) []api.ServerPrompt {
+	// Create a map of override prompts by name for quick lookup
+	overrideMap := make(map[string]api.ServerPrompt)
+	for _, prompt := range override {
+		overrideMap[prompt.Prompt.Name] = prompt
+	}
+
+	// Build result: start with base prompts, skipping any that are overridden
+	result := make([]api.ServerPrompt, 0, len(base)+len(override))
+	for _, prompt := range base {
+		if _, exists := overrideMap[prompt.Prompt.Name]; !exists {
+			result = append(result, prompt)
+		}
+	}
+
+	// Add all override prompts
+	result = append(result, override...)
+
+	return result
+}
+
+// metricsMiddleware returns a metrics middleware with access to the server's metrics system
+func (s *Server) metricsMiddleware() func(mcp.MethodHandler) mcp.MethodHandler {
+	return func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			start := time.Now()
+			result, err := next(ctx, method, req)
+			duration := time.Since(start)
+
+			toolName := method
+			if method == "tools/call" {
+				if params, ok := req.GetParams().(*mcp.CallToolParamsRaw); ok {
+					if toolReq, _ := GoSdkToolCallParamsToToolCallRequest(params); toolReq != nil {
+						toolName = toolReq.Name
+					}
+				}
+			}
+
+			// Record to all collectors
+			s.metrics.RecordToolCall(ctx, toolName, duration, err)
+
+			return result, err
+		}
+	}
+}
+
+// GetMetrics returns the metrics system for use by the HTTP server.
+func (s *Server) GetMetrics() *metrics.Metrics {
+	return s.metrics
 }
 
 func (s *Server) ServeStdio(ctx context.Context) error {
