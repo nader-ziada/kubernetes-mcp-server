@@ -90,6 +90,7 @@ func NewServer(configuration Configuration, oidcProvider *oidc.Provider, httpCli
 					Resources: nil,
 					Prompts:   &mcp.PromptCapabilities{ListChanged: !configuration.Stateless},
 					Tools:     &mcp.ToolCapabilities{ListChanged: !configuration.Stateless},
+					Logging:   &mcp.LoggingCapabilities{},
 				},
 				Instructions: configuration.ServerInstructions,
 			}),

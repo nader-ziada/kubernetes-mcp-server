@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	internalk8s "github.com/containers/kubernetes-mcp-server/pkg/kubernetes"
+	"github.com/containers/kubernetes-mcp-server/pkg/mcplog"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"k8s.io/klog/v2"
 )
@@ -51,9 +52,13 @@ func toolScopedAuthorizationMiddleware(next mcp.MethodHandler) mcp.MethodHandler
 	return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 		scopes, ok := ctx.Value(TokenScopesContextKey).([]string)
 		if !ok {
+			klog.V(2).Infof("Authorization failed for %s: no scopes in context", method)
+			mcplog.SendMCPLog(ctx, "error", "Authentication failed")
 			return NewTextResult("", fmt.Errorf("authorization failed: Access denied: Tool '%s' requires scope 'mcp:%s' but no scope is available", method, method)), nil
 		}
 		if !slices.Contains(scopes, "mcp:"+method) && !slices.Contains(scopes, method) {
+			klog.V(2).Infof("Authorization failed for %s: insufficient scopes (have: %v, need: mcp:%s)", method, scopes, method)
+			mcplog.SendMCPLog(ctx, "error", "Insufficient permissions for this operation")
 			return NewTextResult("", fmt.Errorf("authorization failed: Access denied: Tool '%s' requires scope 'mcp:%s' but only scopes %s are available", method, method, scopes)), nil
 		}
 		return next(ctx, method, req)
