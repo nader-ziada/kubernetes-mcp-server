@@ -260,7 +260,7 @@ jobs:
 
       - name: Upload PR context
         if: always() && needs.check-trigger.outputs.is-pr == 'true'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: eval-context
           path: eval-context/
@@ -296,8 +296,13 @@ jobs:
           AGENT_NAME=$(echo "$EVAL_CONFIG" | sed 's|evals/||; s|/eval\.yaml||')
 
           mkdir -p evals/results
-          # Copy the mcpchecker results file with agent-specific name
-          cp mcpchecker-results/results.json "evals/results/${AGENT_NAME}-latest.json"
+          # Copy the most recent mcpchecker results file with agent-specific name
+          RESULTS_FILE=$(ls -t mcpchecker-results/mcpchecker-*-out.json 2>/dev/null | head -1)
+          if [ -z "$RESULTS_FILE" ]; then
+            echo "Error: No mcpchecker results file found"
+            exit 1
+          fi
+          cp "$RESULTS_FILE" "evals/results/${AGENT_NAME}-latest.json"
 
       - name: Create Pull Request
         env:
@@ -314,6 +319,13 @@ jobs:
           # Create or reset the branch
           git checkout -B "$BRANCH"
           git add evals/results/*-latest.json
+
+          # Skip if no changes
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+
           git commit -m "chore(evals): update mcpchecker evaluation results"
           git push -f origin "$BRANCH"
 
