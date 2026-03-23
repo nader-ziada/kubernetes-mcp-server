@@ -4,15 +4,16 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
 	"k8s.io/klog/v2"
-	"k8s.io/utils/strings/slices"
 
 	"github.com/containers/kubernetes-mcp-server/pkg/config"
+	internalk8s "github.com/containers/kubernetes-mcp-server/pkg/kubernetes"
 )
 
 // write401 sends a 401/Unauthorized response with WWW-Authenticate header.
@@ -51,8 +52,10 @@ func write401(w http.ResponseWriter, wwwAuthenticateHeader, errorType, message s
 func AuthorizationMiddleware(staticConfig *config.StaticConfig, oidcProvider *oidc.Provider) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Skip auth for infrastructure endpoints (health, metrics) and well-known endpoints
+			// Use prefix matching for well-known to handle sub-paths like /.well-known/oauth-protected-resource/sse
 			if slices.Contains(infraPaths, r.URL.Path) ||
-				slices.Contains(WellKnownEndpoints, r.URL.EscapedPath()) {
+				strings.HasPrefix(r.URL.EscapedPath(), "/.well-known/") {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -94,7 +97,10 @@ func AuthorizationMiddleware(staticConfig *config.StaticConfig, oidcProvider *oi
 				return
 			}
 
-			next.ServeHTTP(w, r)
+			// Store the validated Authorization header in context for MCP handlers
+			// This is necessary because SSE transport doesn't propagate HTTP headers to MCP requests
+			ctx := context.WithValue(r.Context(), internalk8s.OAuthAuthorizationHeader, authHeader)
+			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }

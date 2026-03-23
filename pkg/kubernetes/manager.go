@@ -116,10 +116,11 @@ func NewManager(config api.BaseConfig, restConfig *rest.Config, clientCmdConfig 
 func (m *Manager) Derived(ctx context.Context) (*Kubernetes, error) {
 	authorization, ok := ctx.Value(OAuthAuthorizationHeader).(string)
 	if !ok || !strings.HasPrefix(authorization, "Bearer ") {
-		if m.config.IsRequireOAuth() {
-			return nil, errors.New("oauth token required")
+		// Use kubeconfig credentials if explicitly configured or if OAuth is not required
+		if m.config.GetClusterAuthMode() == api.ClusterAuthKubeconfig || !m.config.IsRequireOAuth() {
+			return m.kubernetes, nil
 		}
-		return m.kubernetes, nil
+		return nil, errors.New("oauth token required")
 	}
 	klog.V(5).Infof("%s header found (Bearer), using provided bearer token", OAuthAuthorizationHeader)
 	userAgent := CustomUserAgent

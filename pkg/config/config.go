@@ -66,9 +66,16 @@ type StaticConfig struct {
 	// StsAudience is the audience for the STS token exchange.
 	StsAudience string `toml:"sts_audience,omitempty"`
 	// StsScopes is the scopes for the STS token exchange.
-	StsScopes            []string `toml:"sts_scopes,omitempty"`
-	CertificateAuthority string   `toml:"certificate_authority,omitempty"`
-	ServerURL            string   `toml:"server_url,omitempty"`
+	StsScopes []string `toml:"sts_scopes,omitempty"`
+	// TokenExchangeStrategy is the token exchange strategy to use (rfc8693, keycloak-v1, entra-obo).
+	// When set with passthrough mode, the token is exchanged before being passed to the cluster.
+	TokenExchangeStrategy string `toml:"token_exchange_strategy,omitempty"`
+	// ClusterAuthMode determines how the MCP server authenticates to the cluster.
+	// Valid values: "passthrough" (use OAuth token, with optional exchange), "kubeconfig" (use kubeconfig credentials).
+	// If empty, auto-detects: passthrough when require_oauth=true, otherwise kubeconfig.
+	ClusterAuthMode      string `toml:"cluster_auth_mode,omitempty"`
+	CertificateAuthority string `toml:"certificate_authority,omitempty"`
+	ServerURL            string `toml:"server_url,omitempty"`
 
 	// TLS configuration for the HTTP server
 	// TLSCert is the path to the TLS certificate file for HTTPS
@@ -354,6 +361,14 @@ func (c *StaticConfig) GetStsScopes() []string {
 	return c.StsScopes
 }
 
+func (c *StaticConfig) GetStsStrategy() string {
+	return c.TokenExchangeStrategy
+}
+
 func (c *StaticConfig) IsValidationEnabled() bool {
 	return c.ValidationEnabled
+}
+
+func (c *StaticConfig) GetClusterAuthMode() string {
+	return c.ClusterAuthMode
 }

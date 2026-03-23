@@ -7,9 +7,28 @@ const (
 	ClusterProviderKcp        = "kcp"
 )
 
+// ClusterAuthMode constants define how the MCP server authenticates to the cluster.
+const (
+	// ClusterAuthPassthrough passes the OAuth token to the cluster.
+	// If token exchange is configured (token_exchange_strategy or sts_audience),
+	// the token is exchanged first before being passed through.
+	ClusterAuthPassthrough = "passthrough"
+
+	// ClusterAuthKubeconfig uses kubeconfig credentials (e.g., ServiceAccount token).
+	// Use when cluster auth is separate from MCP client auth.
+	ClusterAuthKubeconfig = "kubeconfig"
+)
+
 type AuthProvider interface {
 	// IsRequireOAuth indicates whether OAuth authentication is required.
 	IsRequireOAuth() bool
+}
+
+// ClusterAuthProvider provides configuration for how the MCP server authenticates to clusters.
+type ClusterAuthProvider interface {
+	// GetClusterAuthMode returns the cluster authentication mode.
+	// Returns empty string for auto-detection based on other config.
+	GetClusterAuthMode() string
 }
 
 type ClusterProvider interface {
@@ -51,6 +70,7 @@ type StsConfigProvider interface {
 	GetStsClientSecret() string
 	GetStsAudience() string
 	GetStsScopes() []string
+	GetStsStrategy() string
 }
 
 // ValidationEnabledProvider provides access to validation enabled setting.
@@ -60,6 +80,7 @@ type ValidationEnabledProvider interface {
 
 type BaseConfig interface {
 	AuthProvider
+	ClusterAuthProvider
 	ClusterProvider
 	DeniedResourcesProvider
 	ExtendedConfigProvider

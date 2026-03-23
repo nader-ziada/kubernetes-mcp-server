@@ -9,30 +9,30 @@ import (
 )
 
 type tokenExchangingProvider struct {
-	provider          Provider
-	stsConfigProvider api.StsConfigProvider
-	oidcProvider      *oidc.Provider
-	httpClient        *http.Client
+	provider     Provider
+	baseConfig   api.BaseConfig
+	oidcProvider *oidc.Provider
+	httpClient   *http.Client
 }
 
 var _ Provider = &tokenExchangingProvider{}
 
 func newTokenExchangingProvider(
 	provider Provider,
-	stsConfigProvider api.StsConfigProvider,
+	baseConfig api.BaseConfig,
 	oidcProvider *oidc.Provider,
 	httpClient *http.Client,
 ) Provider {
 	return &tokenExchangingProvider{
-		provider:          provider,
-		stsConfigProvider: stsConfigProvider,
-		oidcProvider:      oidcProvider,
-		httpClient:        httpClient,
+		provider:     provider,
+		baseConfig:   baseConfig,
+		oidcProvider: oidcProvider,
+		httpClient:   httpClient,
 	}
 }
 
 func (p *tokenExchangingProvider) GetDerivedKubernetes(ctx context.Context, target string) (*Kubernetes, error) {
-	ctx = ExchangeTokenInContext(ctx, p.stsConfigProvider, p.oidcProvider, p.httpClient, p.provider, target)
+	ctx = ExchangeTokenInContext(ctx, p.baseConfig, p.oidcProvider, p.httpClient, p.provider, target)
 	return p.provider.GetDerivedKubernetes(ctx, target)
 }
 
