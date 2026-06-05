@@ -114,29 +114,35 @@ Replace:
 
 > **Note:** When `cluster_auth_mode` is not set, the server defaults to `passthrough`:
 > the Authorization header is forwarded to the cluster when present, and kubeconfig
-> credentials are used when absent. Set `cluster_auth_mode = "kubeconfig"` to always
-> use kubeconfig credentials regardless of any Authorization header.
+> credentials are used when absent.
+>
+> `cluster_auth_mode = "kubeconfig"` (always use kubeconfig credentials) is **not compatible
+> with `require_oauth = true`** because all authenticated users would share a single cluster
+> identity, breaking per-user audit trails.
 >
 > In `passthrough` mode, if token exchange is configured (`token_exchange_strategy` or `sts_audience`), the token is exchanged before being passed to the cluster.
 
 ### With ServiceAccount Credentials
 
-If your Kubernetes cluster doesn't accept Entra ID tokens on the API server, use this configuration:
+If your Kubernetes cluster doesn't accept Entra ID tokens on the API server, use token exchange
+to convert the user's Entra ID token into a cluster-compatible credential. See the
+[With Token Exchange](#with-token-exchange-on-behalf-of-flow) section below.
+
+> **Note:** You cannot use `cluster_auth_mode = "kubeconfig"` with `require_oauth = true`.
+> The server rejects this combination at startup because all users would share a single
+> ServiceAccount identity, making per-user audit trails impossible.
+
+If you only need a ServiceAccount-backed setup **without OAuth** (e.g., for local development),
+you can use:
 
 ```toml
-require_oauth = true
-oauth_audience = "<CLIENT_ID>"
-oauth_scopes = ["openid", "profile", "email"]
-
-authorization_url = "https://login.microsoftonline.com/<TENANT_ID>/v2.0"
-
-# Use kubeconfig ServiceAccount credentials for cluster access
+# No OAuth — single-user local setup
 cluster_auth_mode = "kubeconfig"
 kubeconfig = "/path/to/sa-kubeconfig"
 ```
 
 This setup:
-- **MCP clients authenticate via Entra ID** (OAuth required for MCP access)
+- **No MCP-layer authentication** (suitable for local/trusted environments only)
 - **Cluster access uses ServiceAccount token** (from kubeconfig)
 
 #### Creating a ServiceAccount Kubeconfig
